@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Responder Dashboard</h3>
+<p>Recent incidents (simulated). Click refresh to get latest.</p>
+<button class="btn btn-sm btn-outline-secondary" id="refreshInc">Refresh</button>
+<table class="table table-striped mt-3" id="incTable">
+  <thead>
+    <tr><th>Time (UTC)</th><th>Type</th><th>Location</th><th>Accel</th><th>Speed</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    {% for inc in incidents %}
+      <tr>
+        <td>{{ inc.timestamp }}</td>
+        <td>{{ inc.type if inc.type else "auto-detect" }}</td>
+        <td>{{ inc.location.lat }}, {{ inc.location.lng }}</td>
+        <td>{{ inc.accel_mag or '-' }}</td>
+        <td>{{ inc.speed or '-' }}</td>
+        <td>{{ inc.status }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">No incidents yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<script>
+document.getElementById("refreshInc").addEventListener("click", async () => {
+  const r = await fetch("/api/incidents");
+  const data = await r.json();
+  const tbody = document.querySelector("#incTable tbody");
+  tbody.innerHTML = "";
+  data.forEach(i => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i.timestamp}</td><td>${i.type||'auto-detect'}</td><td>${i.location.lat}, ${i.location.lng}</td><td>${i.accel_mag||'-'}</td><td>${i.speed||'-'}</td><td>${i.status}</td>`;
+    tbody.appendChild(tr);
+  });
+});
+</script>
+{% endblock %}
