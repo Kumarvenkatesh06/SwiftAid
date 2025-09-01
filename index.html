@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+  <div class="col-md-6">
+    <h3>Real-time Crash Detection (Simulated)</h3>
+    <p>
+      This page simulates the mobile app behaviour described in the SwiftAid report:
+      calculation of acceleration magnitude, a 10-second cancel window, and automatic alert if not cancelled. :contentReference[oaicite:1]{index=1}
+    </p>
+
+    <div class="mb-3">
+      <label class="form-label">User ID</label>
+      <input id="userId" class="form-control" value="user_001">
+    </div>
+
+    <div class="mb-2">
+      <button id="simulateCrashBtn" class="btn btn-danger">Simulate Crash</button>
+      <button id="manualSosBtn" class="btn btn-warning">Send Manual SOS</button>
+    </div>
+
+    <div id="countdownArea" class="mt-3" style="display:none;">
+      <p><strong>Cancel window:</strong> <span id="countdown">10</span>s remaining</p>
+      <button id="cancelBtn" class="btn btn-secondary">Cancel Alert</button>
+    </div>
+
+    <div id="result" class="mt-3"></div>
+  </div>
+
+  <div class="col-md-6">
+    <h3>Quick Simulation Controls</h3>
+    <p>Set simulated GPS and sensor values:</p>
+    <div class="row g-2">
+      <div class="col-6"><input id="lat" class="form-control" placeholder="Latitude" value="12.9716"></div>
+      <div class="col-6"><input id="lng" class="form-control" placeholder="Longitude" value="77.5946"></div>
+      <div class="col-6"><input id="accel" class="form-control" placeholder="Accel magnitude (m/s²)" value="18.5"></div>
+      <div class="col-6"><input id="speed" class="form-control" placeholder="Speed (km/h)" value="70"></div>
+    </div>
+    <hr>
+    <h5>Contacts (configured)</h5>
+    <ul id="contactsList">
+      {% for c in contacts %}
+        <li>{{ c.name }} — {{ c.phone }} / {{ c.email }}</li>
+      {% else %}
+        <li>No contacts set. Go to Contacts page to add.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endblock %}
