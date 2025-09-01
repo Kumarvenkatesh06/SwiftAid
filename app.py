@@ -1,4 +1,4 @@
-import os, uuid, smtplib, ssl
+import os, uuid, requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_pymongo import PyMongo
@@ -8,8 +8,6 @@ from flask_login import (
 )
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 # ------------------- APP SETUP -------------------
 load_dotenv()
@@ -18,19 +16,18 @@ app = Flask(__name__)
 # Secret key for sessions
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-# MongoDB setup (optional)
+# MongoDB setup
 MONGO_URI = os.getenv("MONGO_URI")
-app.config["MONGO_URI"] = MONGO_URI or ""
-if MONGO_URI:
-    mongo = PyMongo(app)
-    db = mongo.db
-else:
-    db = None
-    IN_MEMORY = {"contacts": [], "incidents": [], "users": []}
+if not MONGO_URI:
+    raise ValueError("❌ MONGO_URI is missing in your .env file")
 
-# Email setup
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+app.config["MONGO_URI"] = MONGO_URI
+mongo = PyMongo(app)
+db = mongo.db
+
+# Brevo setup
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+BREVO_URL = "https://api.brevo.com/v3/smtp/email"
 
 # Login setup
 bcrypt = Bcrypt(app)
@@ -47,7 +44,7 @@ class User(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    u = next((u for u in IN_MEMORY["users"] if u["id"] == user_id), None)
+    u = db.users.find_one({"id": user_id})
     if u:
         return User(u["id"], u["username"], u["email"], u["password_hash"])
     return None
@@ -60,13 +57,14 @@ def register():
         email = request.form["email"]
         password = request.form["password"]
 
-        if any(u["email"] == email for u in IN_MEMORY["users"]):
+        if db.users.find_one({"email": email}):
             flash("Email already registered", "danger")
             return redirect(url_for("register"))
 
         pw_hash = bcrypt.generate_password_hash(password).decode("utf-8")
         user_id = str(uuid.uuid4())
-        IN_MEMORY["users"].append({
+
+        db.users.insert_one({
             "id": user_id,
             "username": username,
             "email": email,
@@ -83,7 +81,7 @@ def login():
         email = request.form["email"]
         password = request.form["password"]
 
-        u = next((u for u in IN_MEMORY["users"] if u["email"] == email), None)
+        u = db.users.find_one({"email": email})
         if u and bcrypt.check_password_hash(u["password_hash"], password):
             login_user(User(u["id"], u["username"], u["email"], u["password_hash"]))
             flash("Login successful!", "success")
@@ -103,30 +101,36 @@ def logout():
 # ------------------- DB HELPERS -------------------
 def add_contact(contact):
     contact["id"] = str(uuid.uuid4())
-    IN_MEMORY["contacts"].append(contact)
+    db.contacts.insert_one(contact)
     return contact["id"]
 
 def list_contacts():
-    return IN_MEMORY["contacts"]
+    return list(db.contacts.find({}, {"_id": 0}))
 
 def save_incident(inc):
-    IN_MEMORY["incidents"].append(inc)
+    db.incidents.insert_one(inc)
 
 def list_incidents():
-    return IN_MEMORY["incidents"]
+    return list(db.incidents.find({}, {"_id": 0}))
 
-# ------------------- EMAIL -------------------
+# ------------------- EMAIL (via Brevo) -------------------
 def send_email(to_email, subject, body):
     try:
-        msg = MIMEMultipart()
-        msg["From"] = EMAIL_USER
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.sendmail(EMAIL_USER, to_email, msg.as_string())
+        BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+        url = "https://api.brevo.com/v3/smtp/email"
+        payload = {
+            "sender": {"name": "SwiftAid Alert", "email": "vijaymh041@gmail.com"},
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "textContent": body
+        }
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": BREVO_API_KEY
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
         print(f"✅ Email sent to {to_email}")
     except Exception as e:
         print(f"❌ Email failed: {e}")
@@ -142,7 +146,11 @@ def index():
 def contacts():
     if request.method == "POST":
         data = request.form
-        contact = {"name": data.get("name"), "phone": data.get("phone"), "email": data.get("email")}
+        contact = {
+            "name": data.get("name"),
+            "phone": data.get("phone"),
+            "email": data.get("email")
+        }
         add_contact(contact)
         return redirect(url_for("contacts"))
     return render_template("contacts.html", contacts=list_contacts())
@@ -173,10 +181,45 @@ def report_accident():
 
 # ------------------- NOTIFY -------------------
 def notify_contacts(incident):
-    for c in list_contacts():
+    contacts = list_contacts()
+    if not contacts:
+        print("❌ No contacts found. SOS not sent.")
+        return
+
+    for c in contacts:
         if c.get("email"):
-            body = f"🚨 EMERGENCY ALERT 🚨\nIncident ID: {incident['id']}\nLocation: {incident['location']}"
+            body = (
+                f"🚨 EMERGENCY ALERT 🚨\n\n"
+                f"Incident ID: {incident['id']}\n"
+                f"User: {incident.get('user_id')}\n"
+                f"Location: {incident['location']}\n"
+                f"Acceleration: {incident.get('accel_mag')}\n"
+                f"Speed: {incident.get('speed')}\n"
+                f"Status: {incident['status']}\n"
+                f"Time: {incident['timestamp']}"
+            )
             send_email(c["email"], "Emergency Alert", body)
+
+
+# ------------------- MANUAL SOS -------------------
+@app.route("/manual-sos", methods=["POST"])
+@login_required
+def manual_sos():
+    incident = {
+        "id": str(uuid.uuid4()),
+        "user_id": current_user.id,
+        "location": {"lat": request.form.get("lat"), "lng": request.form.get("lng")},
+        "accel_mag": request.form.get("accel_mag"),
+        "speed": request.form.get("speed"),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "status": "manual_sos",
+        "notified": True,
+    }
+    save_incident(incident)
+    notify_contacts(incident)
+    flash("🚨 Manual SOS sent to your contacts!", "success")
+    return redirect(url_for("index"))
+
 
 # ------------------- RUN -------------------
 if __name__ == "__main__":
