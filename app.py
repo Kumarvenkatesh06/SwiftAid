@@ -1,8 +1,3 @@
-app.py
-
-
-
-
 import os, uuid, requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
