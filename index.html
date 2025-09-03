@@ -3,10 +3,9 @@
 <div class="row">
   <div class="col-md-6">
     <h3>Real-time Crash Detection (Simulated)</h3>
-    <p>
-      This page simulates the mobile app behaviour described in the SwiftAid report:
-      calculation of acceleration magnitude, a 10-second cancel window, and automatic alert if not cancelled. :contentReference[oaicite:1]{index=1}
-    </p>
+    <p>This page simulates SwiftAid behaviour with GPS & accelerometer sensors.</p>
+
+    <p>Accel: <span id="speed"></span></p>
 
     <div class="mb-3">
       <label class="form-label">User ID</label>
@@ -14,15 +13,8 @@
     </div>
 
     <div class="mb-2">
-        <button id="simulateCrashBtn" class="btn btn-danger">Simulate Crash</button>
-        <form action="{{ url_for('manual_sos') }}" method="POST" id="manualSosForm">
-            <input type="hidden" name="lat" id="formLat">
-            <input type="hidden" name="lng" id="formLng">
-            <input type="hidden" name="accel_mag" id="formAccel">
-            <input type="hidden" name="speed" id="formSpeed">
-            <button type="submit" class="btn btn-warning">Send Manual SOS</button>
-        </form>
-
+      <button id="simulateCrashBtn" class="btn btn-danger">Simulate Crash</button>
+      <button id="manualSosBtn" class="btn btn-warning">Send Manual SOS</button>
     </div>
 
     <div id="countdownArea" class="mt-3" style="display:none;">
@@ -31,6 +23,7 @@
     </div>
 
     <div id="result" class="mt-3"></div>
+
   </div>
 
   <div class="col-md-6">
@@ -53,4 +46,127 @@
     </ul>
   </div>
 </div>
+
+<!-- 🚀 JS for Crash Detection + Manual SOS -->
+<script>
+
+    const audio = new Audio({{ url_for('static', filename='alert.mp3') }});
+
+  // --- GPS Helper ---
+  function getLocation(callback) {
+      if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+              (position) => {
+                  callback({
+                      lat: position.coords.latitude,
+                      lng: position.coords.longitude
+                  });
+              },
+              (error) => {
+                  console.error("GPS error:", error);
+                  callback(null);
+              }
+          );
+      } else {
+          alert("Geolocation not supported");
+          callback(null);
+      }
+  }
+
+  // --- Accelerometer ---
+  let latestAccel = 0;
+  function getAccelMag(event) {
+      let ax = event.acceleration?.x ?? 0;
+      let ay = event.acceleration?.y ?? 0;
+      let az = event.acceleration?.z ?? 0;
+      return Math.sqrt(ax * ax + ay * ay + az * az);
+  }
+  window.addEventListener("devicemotion", (event) => {
+    console.log(event.acceleration);
+    document.getElementById("speed").innerHTML = ${getAccelMag(event.acceleration)};
+      latestAccel = getAccelMag(event);
+      console.log(latestAccel);
+      // 🚨 Auto crash detection threshold (e.g., > 25 m/s²)
+      if (latestAccel > 25) {
+          console.log("🚨 Crash detected! Accel:", latestAccel);
+          startCountdown(false);  // auto crash SOS
+      }
+  });
+
+  // --- Send SOS ---
+  function sendSOS(isManual = false) {
+      getLocation((loc) => {
+          if (!loc) {
+              alert("Location not available");
+              return;
+          }
+
+          const payload = {
+              user_id: document.getElementById("userId").value || "anonymous",
+              lat: loc.lat,
+              lng: loc.lng,
+              accel_mag: latestAccel || document.getElementById("accel").value,
+              speed: document.getElementById("speed").value || 0,
+              metadata: { manual: isManual }
+          };
+
+          fetch("/api/report-accident", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+          })
+          .then(res => res.json())
+          .then(data => {
+              console.log("✅ SOS sent:", data);
+              document.getElementById("result").innerHTML = 
+                  <div class="alert alert-success">🚨 SOS Sent! ID: ${data.incident_id}</div>;
+          })
+          .catch(err => console.error("❌ Error sending SOS:", err));
+      });
+  }
+
+  // --- Cancel Window ---
+  let countdownInterval, countdownValue, sosTimer;
+
+  function startCountdown(isManual) {
+      countdownValue = 10;
+      document.getElementById("countdown").innerText = countdownValue;
+      document.getElementById("countdownArea").style.display = "block";
+      
+
+      clearInterval(countdownInterval);
+      clearTimeout(sosTimer);
+
+      countdownInterval = setInterval(() => {
+          countdownValue--;
+          document.getElementById("countdown").innerText = countdownValue;
+          audio.play()
+          
+          if (countdownValue <= 0) {
+              clearInterval(countdownInterval);
+          }
+      }, 1000);
+
+      sosTimer = setTimeout(() => {
+          sendSOS(isManual);
+          document.getElementById("countdownArea").style.display = "none";
+      }, 10000);
+  }
+
+  document.getElementById("cancelBtn").addEventListener("click", () => {
+      clearTimeout(sosTimer);
+      clearInterval(countdownInterval);
+      document.getElementById("countdownArea").style.display = "none";
+      document.getElementById("result").innerHTML = 
+          <div class="alert alert-info">🚫 SOS cancelled by user</div>;
+  });
+
+  // --- Buttons ---
+  document.getElementById("manualSosBtn").addEventListener("click", () => {
+      startCountdown(true);
+  });
+  document.getElementById("simulateCrashBtn").addEventListener("click", () => {
+      startCountdown(false);
+  });
+</script>
 {% endblock %}
