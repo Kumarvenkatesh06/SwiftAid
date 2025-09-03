@@ -1,3 +1,8 @@
+app.py
+
+
+
+
 import os, uuid, requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
@@ -11,7 +16,7 @@ from dotenv import load_dotenv
 
 # ------------------- APP SETUP -------------------
 load_dotenv()
-app = Flask(__name__)
+app = Flask(_name_)
 
 # Secret key for sessions
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
@@ -36,7 +41,7 @@ login_manager.login_view = "login"
 
 # ------------------- USER CLASS -------------------
 class User(UserMixin):
-    def __init__(self, user_id, username, email, password_hash):
+    def _init_(self, user_id, username, email, password_hash):
         self.id = user_id
         self.username = username
         self.email = email
@@ -222,5 +227,5 @@ def manual_sos():
 
 
 # ------------------- RUN -------------------
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+if _name_ == "_main_":
+    app.run(debug=True, port=5000, host="0.0.0.0")
